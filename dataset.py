@@ -1,14 +1,15 @@
 from sys import base_prefix
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
+from utils import open_file
 
 class NMTDataset(Dataset):
     def __init__(self, src_path, tgt_path=None) :
         super(NMTDataset, self).__init__()
-        self.src = NMTDataset.open_file(src_path)
+        self.src = open_file(src_path)
         self.tgt = None
         if tgt_path is not None:
-            self.tgt = NMTDataset.open_file(tgt_path)
+            self.tgt = open_file(tgt_path)
         self.size = len(self.src)
 
     def __getitem__(self, index: int):
@@ -17,16 +18,7 @@ class NMTDataset(Dataset):
         return self.src[index], self.tgt[index]
 
     def __len__(self) -> int:
-        return self.size()
-
-    @staticmethod
-    def open_file(file_path):
-        data = []
-        with open(file_path, 'r', encoding="utf8") as f:
-            sents = f.readlines()
-            for s in sents:
-                data.append(s.strip())
-        return data
+        return self.size
 
     @staticmethod
     def save_file(data, file_path):
