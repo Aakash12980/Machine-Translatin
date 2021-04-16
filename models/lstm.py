@@ -80,6 +80,7 @@ class Seq2Seq(nn.Module):
         self.hidden_size = hidden_size
         self.dropout_rate = dropout_rate
         self.tokenizer = tokenizer
+        self.tgt_vocab_len = len(tokenizer.tgt_vocab)
 
         self.encoder = Encoder(len(tokenizer.src_vocab), embed_size, hidden_size, tokenizer.src_vocab.word2id['[PAD]'], dropout_rate, n_layers)
         self.decoder = Decoder(len(tokenizer.tgt_vocab), embed_size, hidden_size, tokenizer.tgt_vocab.word2id['[PAD]'], dropout_rate, n_layers)
@@ -104,66 +105,5 @@ class Seq2Seq(nn.Module):
         for id, src_len in enumerate(src_len):
             enc_mask[id, src_len:] = 1
         return enc_mask.to(device)
-
-    @staticmethod
-    def trainer(model, optimizer, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
-        eval_loss = float('inf')
-        start_epoch = 0
-        if os.path.exists(checkpt_path):
-            model, optimizer, eval_loss, start_epoch = load_checkpt(model, checkpt_path, device, optimizer)
-            print(f"Loading model from checkpoint with start epoch: {start_epoch} and loss: {eval_loss}")
-
-        best_eval_loss = eval_loss
-        print("Model training started...")
-        for epoch in range(start_epoch, epoch):
-            print(f"Epoch {epoch} running...")
-            epoch_start_time = time.time()
-            epoch_train_loss = 0
-            epoch_eval_loss = 0
-            model.train()
-            total_iters = 0
-            for step, batch in enumerate(train_dl):
-                src_tensor, tgt_tensor, src_len, tgt_len = model.tokenizer.encode(batch, device, return_tensor=True)
-                optimizer.zero_grad()
-                model.zero_grad()
-                loss = -model(src_tensor, tgt_tensor, src_len, model.tokenizer.tgt_vocab.word2id['[UNK]'], device)
-                batch_loss = loss.sum()
-                avg_loss = batch_loss/batch_size
-                avg_loss.backward()
-                optimizer.step()
-                epoch_train_loss += avg_loss.item()
-                total_iters = step+1
-
-                if (step+1) % LOG_EVERY == 0:
-                    print(f'Epoch: {epoch} | iter: {step+1} | avg. train loss: {epoch_train_loss} | time elapsed: {time.time() - epoch_start_time}')
-
-            print(f'Epoch: {epoch} Compeleted | avg. train loss: {epoch_train_loss/total_iters} | time elapsed: {time.time() - epoch_start_time}')
-            eval_start_time = time.time()
-            epoch_eval_loss,bleu_score = evaluate(model, valid_dl, epoch_eval_loss, device, batch_size, beam_size, max_decoding_time_step)
-            print(f'Completed Epoch: {epoch} | avg. eval loss: {epoch_eval_loss:.5f} | BLEU Score: {bleu_score} | time elapsed: {time.time() - eval_start_time}')
-
-            check_pt = {
-                'epoch': epoch+1,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'eval_loss': epoch_eval_loss,
-                'batch_size': batch_size,
-            }
-            check_pt_time = time.time()
-            print("Saving Checkpoint.......")
-            if epoch_eval_loss < best_eval_loss:
-                print("New best model found")
-                best_eval_loss = epoch_eval_loss
-                save_model_checkpt(check_pt, True, checkpt_path, best_model_path)
-            else:
-                save_model_checkpt(check_pt, False, checkpt_path, best_model_path)  
-            print(f"Checkpoint saved successfully with time: {time.time() - check_pt_time}")
-
-        return model
-
-
-
-
-
 
 

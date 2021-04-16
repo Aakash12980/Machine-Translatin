@@ -57,11 +57,17 @@ class SpaceVocab():
     def id2word(self, id):
         return self.id2word[id]
 
-    def word2indices(self, sents):
+    def word2indices(self, sents, is_src):
         if not isinstance(sents, str):
-            return [[self[w] for w in ["[SOS]"] + word_tokenize(s.lower().strip()) +["[EOS]"]] for s in sents]
+            if is_src:
+                return [[self[w] for w in word_tokenize(s.lower().strip())] for s in sents]
+            else:
+                return [[self[w] for w in ["[SOS]"] + word_tokenize(s.lower().strip()) +["[EOS]"]] for s in sents]
         else:
-            return [self[w] for w in ["[SOS]"] + word_tokenize(sents.lower().strip()) + ["[EOS]"]]
+            if is_src:
+                return [self[w] for w in word_tokenize(sents.lower().strip())]
+            else:
+                return [self[w] for w in ["[SOS]"] + word_tokenize(sents.lower().strip()) + ["[EOS]"]]
 
     def add(self, word):
         if word not in self:
@@ -77,8 +83,8 @@ class SpaceVocab():
         else:
             return [self.id2word[w_id] for w_id in word_ids]
 
-    def get_token_id(self, sents, device, return_tensor=False):
-        word_ids = self.word2indices(sents)
+    def get_token_id(self, sents, device, is_src, return_tensor=False):
+        word_ids = self.word2indices(sents, is_src)
         if not isinstance(word_ids[0], list):
             if return_tensor:
                 return torch.tensor(word_ids, dtype=torch.long, device=device)
@@ -106,11 +112,11 @@ class SpaceTokenizer():
     
     def encode(self, batch, device, return_tensor=False):
         if isinstance(batch[0], str):
-            src_tensor, src_len = self.src_vocab.get_token_id(batch, device, return_tensor=return_tensor)
+            src_tensor, src_len = self.src_vocab.get_token_id(batch, device, is_src=True, return_tensor=return_tensor)
             return src_tensor, src_len
         else:
-            src_tensor, src_len = self.src_vocab.get_token_id(batch[0], device, return_tensor=return_tensor)
-            tgt_tensor, tgt_len = self.tgt_vocab.get_token_id(batch[1], device, return_tensor=return_tensor)
+            src_tensor, src_len = self.src_vocab.get_token_id(batch[0], device, is_src=True, return_tensor=return_tensor)
+            tgt_tensor, tgt_len = self.tgt_vocab.get_token_id(batch[1], device, is_src=False, return_tensor=return_tensor)
 
             return src_tensor, tgt_tensor, src_len, tgt_len
 
@@ -147,7 +153,7 @@ class SpaceTokenizer():
     @staticmethod
     def create_vocab(file_path, output_path, least_freq = 2):
         vocab = SpaceVocab()
-        sent_list = open_file(file_path)
+        sent_list = utils.open_file(file_path)
         sent_tokens = SpaceTokenizer.tokenize(sent_list, batch=True)
         word_freq = Counter(chain(*sent_tokens))
         valid_words = [w for w, v in word_freq.items() if v >= least_freq]
@@ -158,27 +164,25 @@ class SpaceTokenizer():
         json.dump(vocab.word2id, open(output_path, 'w', encoding="utf8"), ensure_ascii=False, indent=2)
         print(f"Vocabulary created at location {output_path}")
 
-    
-
 if __name__ == "__main__":
-    tokenizer = SpaceTokenizer("./NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                "./NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
-                )
-    batch = [["Hello, I am a student.", "No you are not.", "Hey man!"], ["I am a student.", "Hey you!", "yess boy, I am."]]
-    src, tgt, src_len, tgt_len = tokenizer.encode(batch, "cpu", True)
-    print(src)
-    print(tgt)
+    # tokenizer = SpaceTokenizer("./NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
+    #             "./NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    #             )
+    # batch = [["Hello, I am a student.", "No you are not.", "Hey man!"], ["I am a student.", "Hey you!", "yess boy, I am."]]
+    # src, tgt, src_len, tgt_len = tokenizer.encode(batch, "cpu", True)
+    # print(src)
+    # print(tgt)
 
 
-    # newa_file = "dataset/Newa_SS.txt"
-    # eng_file = "dataset/Eng_SS.txt"
+    newa_file = "dataset/src_train.txt"
+    eng_file = "dataset/tgt_train.txt"
     # vocab_newa_file = "wordpiece_vocab_files/vocab_newa.json"
     # vocab_eng_file = "wordpiece_vocab_files/vocab_eng.json"
     # Tokenizer.create_vocab(newa_file, vocab_newa_file)
     # Tokenizer.create_vocab(eng_file, vocab_eng_file)
 
-    # vocab_newa_file = "tokenizers/spacetoken_vocab_files/vocab_newa.json"
-    # vocab_eng_file = "tokenizers/spacetoken_vocab_files/vocab_eng.json"
-    # SpaceTokenizer.create_vocab(eng_file, vocab_eng_file)
-    # SpaceTokenizer.create_vocab(newa_file, vocab_newa_file)
+    vocab_newa_file = "tokenizers/spacetoken_vocab_files/vocab_newa.json"
+    vocab_eng_file = "tokenizers/spacetoken_vocab_files/vocab_eng.json"
+    SpaceTokenizer.create_vocab(eng_file, vocab_eng_file)
+    SpaceTokenizer.create_vocab(newa_file, vocab_newa_file)
 

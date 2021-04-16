@@ -1,4 +1,5 @@
 import enum
+from nltk import tokenize
 from nltk.translate import bleu_score
 import torch
 import torch.nn as nn
@@ -7,6 +8,7 @@ import sys
 from collections import namedtuple
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 from NMTtokenizers.tokenizer import SpaceTokenizer
+import time, os
 
 def open_file(path):
     sents = []
@@ -14,10 +16,7 @@ def open_file(path):
         text = f.read().splitlines()
         for s in text:
             sents.append(s.strip())
-    try:
-        return sents[:100]
-    except:
-        return sents
+    return sents
 
 def compute_bleu_score(output, labels):
     refs = SpaceTokenizer.tokenize(labels, batch=True, wrap_inner_list = True)
@@ -159,5 +158,60 @@ def beam_search(model, src_sent, beam_size, max_decoding_time_step, device):
     completed_hypotheses.sort(key=lambda hyp: hyp.score, reverse=True)
 
     return completed_hypotheses
+
+def trainer(model, optimizer, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
+    eval_loss = float('inf')
+    start_epoch = 0
+    if os.path.exists(checkpt_path):
+        model, optimizer, eval_loss, start_epoch = load_checkpt(model, checkpt_path, device, optimizer)
+        print(f"Loading model from checkpoint with start epoch: {start_epoch} and loss: {eval_loss}")
+
+    best_eval_loss = eval_loss
+    print("Model training started...")
+    for epoch in range(start_epoch, epoch):
+        print(f"Epoch {epoch} running...")
+        epoch_start_time = time.time()
+        epoch_train_loss = 0
+        epoch_eval_loss = 0
+        model.train()
+        total_iters = 0
+        for step, batch in enumerate(train_dl):
+            src_tensor, tgt_tensor, src_len, tgt_len = model.tokenizer.encode(batch, device, return_tensor=True)
+            optimizer.zero_grad()
+            model.zero_grad()
+            loss = -model(src_tensor, tgt_tensor, src_len, model.tokenizer.tgt_vocab.word2id['[UNK]'], device)
+            batch_loss = loss.sum()
+            avg_loss = batch_loss/batch_size
+            avg_loss.backward()
+            optimizer.step()
+            epoch_train_loss += avg_loss.item()
+            total_iters = step+1
+
+            if (step+1) % LOG_EVERY == 0:
+                print(f'Epoch: {epoch} | iter: {step+1} | avg. train loss: {epoch_train_loss} | time elapsed: {time.time() - epoch_start_time}')
+
+        print(f'Epoch: {epoch} Compeleted | avg. train loss: {epoch_train_loss/total_iters} | time elapsed: {time.time() - epoch_start_time}')
+        eval_start_time = time.time()
+        epoch_eval_loss,bleu_score = evaluate(model, valid_dl, epoch_eval_loss, device, batch_size, beam_size, max_decoding_time_step)
+        print(f'Completed Epoch: {epoch} | avg. eval loss: {epoch_eval_loss:.5f} | BLEU Score: {bleu_score} | time elapsed: {time.time() - eval_start_time}')
+
+        check_pt = {
+            'epoch': epoch+1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'eval_loss': epoch_eval_loss,
+            'batch_size': batch_size,
+        }
+        check_pt_time = time.time()
+        print("Saving Checkpoint.......")
+        if epoch_eval_loss < best_eval_loss:
+            print("New best model found")
+            best_eval_loss = epoch_eval_loss
+            save_model_checkpt(check_pt, True, checkpt_path, best_model_path)
+        else:
+            save_model_checkpt(check_pt, False, checkpt_path, best_model_path)  
+        print(f"Checkpoint saved successfully with time: {time.time() - check_pt_time}")
+
+    return model
     
     
