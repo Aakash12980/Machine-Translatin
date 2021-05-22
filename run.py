@@ -12,18 +12,18 @@ from models.transformer import TransformerModel
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-BATCH_SIZE = 32
-embed_size = 200
-hidden_size = 120
-dropout_rate = 0.2
-n_layers = 2
-beam_size = 7
-epoch = 20
+BATCH_SIZE = 64
+embed_size = 300
+hidden_size = 256
+dropout_rate = 0.5
+n_layers = 1
+beam_size = 5
+epoch = 30
 n_heads = 8
 LOG_EVERY = 5
-max_decoding_time_step = 70
-base_path = "./drive/My Drive/Machine Translation/"
-# base_path = "./"
+max_decoding_time_step = 40
+# base_path = "./drive/My Drive/Machine Translation/"
+base_path = "./"
 src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json"
 tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
 if not (os.path.exists(src_vocab_path) or os.path.exists(tgt_vocab_path)):
@@ -85,7 +85,7 @@ def train(**kwargs):
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
         'weight_decay_rate': 0.0}
     ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=3e-5)
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=3e-3)
     model.to(device)
     model  = trainer(model, optimizer, train_dl, valid_dl, BATCH_SIZE, epoch, 
                             device, LOG_EVERY, kwargs["checkpoint_path"], kwargs["best_model"], 

@@ -6,6 +6,7 @@ from collections import Counter
 from nltk.tokenize import word_tokenize
 from utils import *
 import utils
+from beam import *
 
 class BertTokenizer():
     def __init__(self, newa_vocab_path, eng_vocab_path):
@@ -60,14 +61,14 @@ class SpaceVocab():
     def word2indices(self, sents, is_src):
         if not isinstance(sents, str):
             if is_src:
-                return [[self[w] for w in word_tokenize(s.lower().strip())] for s in sents]
+                return [[self[w] for w in word_tokenize(s)] for s in sents]
             else:
-                return [[self[w] for w in ["[SOS]"] + word_tokenize(s.lower().strip()) +["[EOS]"]] for s in sents]
+                return [[self[w] for w in ["[SOS]"] + word_tokenize(s) +["[EOS]"]] for s in sents]
         else:
             if is_src:
-                return [self[w] for w in word_tokenize(sents.lower().strip())]
+                return [self[w] for w in word_tokenize(sents)]
             else:
-                return [self[w] for w in ["[SOS]"] + word_tokenize(sents.lower().strip()) + ["[EOS]"]]
+                return [self[w] for w in ["[SOS]"] + word_tokenize(sents) + ["[EOS]"]]
 
     def add(self, word):
         if word not in self:
@@ -128,14 +129,13 @@ class SpaceTokenizer():
         hypotheses = []
         with torch.no_grad():
             for src_sent in src_sent_list:
-                example_hyps = utils.beam_search(model, src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, device=device)
-
+                # example_hyps = utils.beam_search(model, src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, device=device)
+                example_hyps = beam(model, src_sent, beam_size, max_decoding_time_step, 2, device)
                 hypotheses.append(example_hyps)
-
+                # print(hypotheses)
         if was_training: model.train(was_training)
 
         return hypotheses
-
     
     @staticmethod
     def tokenize(sents, batch=True, wrap_inner_list = False):
@@ -146,7 +146,7 @@ class SpaceTokenizer():
                     tokens.append([word_tokenize(s.lower().strip())])
                 else:
                     tokens.append(word_tokenize(s.lower().strip()))
-        else: 
+        else:
             tokens = word_tokenize(sents.lower().strip())
         return tokens        
 
@@ -168,18 +168,21 @@ if __name__ == "__main__":
     # tokenizer = SpaceTokenizer("./NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
     #             "./NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
     #             )
-    # batch = [["Hello, I am a student.", "No you are not.", "Hey man!"], ["I am a student.", "Hey you!", "yess boy, I am."]]
+
+    # batch = [["छिं नयेगु नसा म्हसिइका दिसँ ", "छि च्वनेगु थाय् म्हसिइका दिसँ ", "छिं पुनेगु वस: म्हसिइका दिसँ"], ["I am a student.", "Hey you!", "yess boy, I am."]]
     # src, tgt, src_len, tgt_len = tokenizer.encode(batch, "cpu", True)
     # print(src)
     # print(tgt)
+    # print(src.shape)
+    # print(tgt.shape)
 
 
     newa_file = "dataset/src_train.txt"
     eng_file = "dataset/tgt_train.txt"
     # vocab_newa_file = "wordpiece_vocab_files/vocab_newa.json"
     # vocab_eng_file = "wordpiece_vocab_files/vocab_eng.json"
-    # Tokenizer.create_vocab(newa_file, vocab_newa_file)
-    # Tokenizer.create_vocab(eng_file, vocab_eng_file)
+    # BertTokenizer.create_vocab(newa_file, vocab_newa_file)
+    # BertTokenizer.create_vocab(eng_file, vocab_eng_file)
 
     vocab_newa_file = "tokenizers/spacetoken_vocab_files/vocab_newa.json"
     vocab_eng_file = "tokenizers/spacetoken_vocab_files/vocab_eng.json"

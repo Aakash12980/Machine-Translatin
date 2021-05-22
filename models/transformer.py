@@ -20,42 +20,72 @@ class PositionalEncoding(nn.Module):
         inputs = inputs + self.pos_enc[:inputs.size(0), :]
         return self.dropout(inputs)
 
-
-class TransformerModel(nn.Module):
-    def __init__(self, src_vocab_len, tgt_vocab_len, model_dim=512, n_heads=8, n_enc_layers=6, 
-                n_dec_layers=6, fc_dim=2048, dropout=0.2, activation='relu'):
-        super(TransformerModel, self).__init__()
-        self.model_dim = model_dim
-        self.n_heads = n_heads
-        self.tgt_vocab_len = tgt_vocab_len
-        self.src_embeddings = nn.Embedding(src_vocab_len, model_dim)
+class Encoder(nn.Module):
+    def __init__(self, src_vocab_len, model_dim, fc_dim, n_heads, n_enc_layers, pad_idx, dropout, activation):
+        super(Encoder, self).__init__()
+        self.src_embeddings = nn.Embedding(src_vocab_len, model_dim, padding_idx=pad_idx)
         self.pos_encoder = PositionalEncoding(model_dim, dropout)
         enc_layer = nn.TransformerEncoderLayer(model_dim, n_heads, fc_dim, dropout, activation=activation)
         enc_norm = nn.LayerNorm(model_dim)
         self.encoder = nn.TransformerEncoder(enc_layer, n_enc_layers, enc_norm)
-        self.tgt_embeddings = nn.Embedding(tgt_vocab_len, model_dim)
+
+    def forward(self, src, src_mask):
+        src = self.src_embeddings(src)
+        src = self.pos_encoder(src)
+        # return self.encoder(src, src_key_padding_mask=src_mask)
+        return self.encoder(src)
+        
+class Decoder(nn.Module):
+    def __init__(self, tgt_vocab_len, model_dim, fc_dim, n_heads, n_dec_layers, pad_idx, dropout, activation):
+        super(Decoder, self).__init__()
+        self.tgt_embeddings = nn.Embedding(tgt_vocab_len, model_dim, padding_idx=pad_idx)
+        self.pos_encoder = PositionalEncoding(model_dim, dropout)
         dec_layer = nn.TransformerDecoderLayer(model_dim, n_heads, fc_dim, dropout, activation=activation)
         dec_norm = nn.LayerNorm(model_dim)
         self.decoder = nn.TransformerDecoder(dec_layer, n_dec_layers, dec_norm)
-        self.out = nn.Linear(512, tgt_vocab_len)
-        self.init_weights()
 
-    def forward(self, src, tgt, src_mask=None, tgt_mask=None):
-        assert src.size(1) == tgt.size(1), "The number of source and target sentences should be equal."
-        src = self.src_embeddings(src)
-        src = self.pos_encoder(src)
-        enc_encodings = self.encoder(src, src_mask)
+    def forward(self, tgt, enc_encodings, tgt_mask=None):
         tgt = self.tgt_embeddings(tgt)
         tgt = self.pos_encoder(tgt)
-        output = self.decoder(tgt, tgt_mask)
-        output = self.out(output)
-
+        if tgt_mask is None:
+            output = self.decoder(tgt, enc_encodings, tgt_mask)
+        else:
+            output = self.decoder(tgt, enc_encodings, tgt_mask)
         return output
 
+class TransformerModel(nn.Module):
+    def __init__(self, src_vocab_len, tgt_vocab_len, tokenizer, model_dim=512, n_heads=8, n_enc_layers=6, 
+                n_dec_layers=6, fc_dim=2048, dropout=0.2, activation='relu'):
+        super(TransformerModel, self).__init__()
+        self.model_dim = model_dim
+        self.n_heads = n_heads
+        self.tokenizer = tokenizer
+        self.tgt_vocab_len = tgt_vocab_len
+        self.encoder = Encoder(src_vocab_len, model_dim, fc_dim, n_heads, n_enc_layers, self.tokenizer.src_vocab["[PAD]"], dropout, activation)
+        self.decoder = Decoder(tgt_vocab_len, model_dim, fc_dim, n_heads, n_dec_layers, self.tokenizer.tgt_vocab["[PAD]"], dropout, activation)
+        self.out = nn.Linear(model_dim, tgt_vocab_len)
+        self._reset_parameters()
 
-    def init_weights(self):
-        initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-initrange, initrange)
-        
+    def forward(self, src, tgt, device):
+        assert src.size(0) == tgt.size(0), "The batch size of source and target sentences should be equal."
+        src_mask = get_src_mask(src, self.tokenizer.src_vocab["[PAD]"])
+        tgt_mask = get_tgt_mask(tgt)
+        enc_encodings = self.encoder(src.transpose(0,1), src_mask.to(device))
+        output = self.decoder(tgt.transpose(0,1), enc_encodings, tgt_mask.to(device))
+        output = self.out(output)
+        return output.transpose(0,1).contiguous().view(-1, output.size(-1))
+        # return output.view(-1, output.size(-1))
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+def get_src_mask(src_tensor, src_pad_id):   
+    return (src_tensor != src_pad_id)
+
+def get_tgt_mask(tgt_tensor):
+    seq_len = tgt_tensor.size(-1)
+    mask = (torch.triu(torch.ones(seq_len, seq_len)) == 1).transpose(0, 1)
+    mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+    return mask

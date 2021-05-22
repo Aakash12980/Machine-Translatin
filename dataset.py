@@ -31,8 +31,8 @@ class NMTDataset(Dataset):
     @staticmethod
     def create_train_test_valid_data(src_path, tgt_path):
         base_path = "./dataset/"
-        x = NMTDataset.open_file(src_path)
-        y = NMTDataset.open_file(tgt_path)
+        x = open_file(src_path)
+        y = open_file(tgt_path)
         src_train, src, tgt_train, tgt = train_test_split(x, y, test_size=0.2, shuffle=True)
         src_valid, src_test, tgt_valid, tgt_test = train_test_split(src, tgt, test_size=0.5, shuffle=True)
         NMTDataset.save_file(src_train, base_path+"src_train.txt")
@@ -42,5 +42,26 @@ class NMTDataset(Dataset):
         NMTDataset.save_file(src_test, base_path+"src_test.txt")
         NMTDataset.save_file(tgt_test, base_path+"tgt_test.txt")
 
+    @staticmethod
+    def edit_dataset(src_path, tgt_path):
+        x = open_file(src_path)
+        y = open_file(tgt_path)
+        with open("src.txt", "w", encoding="utf8") as f:
+            for sent in x:
+                if sent.strip()[-1] not in ['।', '?', '!']:
+                    f.write(sent + '।\n')
+                else:
+                    f.write(sent + '\n')
+        with open("tgt.txt", "w", encoding="utf8") as f:
+            for sent in y:
+                if sent.strip()[-1] not in ['.', '!', '?']:
+                    f.write(sent + '.\n')
+                else:
+                    f.write(sent + '\n')
+                    
+
+
 if __name__ == "__main__":
-    NMTDataset.create_train_test_valid_data("./dataset/Newa_SS.txt", "./dataset/Eng_SS.txt")
+    # NMTDataset.create_train_test_valid_data("./dataset/Newa_SS.txt", "./dataset/Eng_SS.txt")
+    # NMTDataset.edit_dataset("./dataset/Newa_SS.txt", "./dataset/Eng_SS.txt")
+    pass

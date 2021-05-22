@@ -5,6 +5,9 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 import os, time
 from utils import *
 
+# base_path = "./drive/My Drive/Machine Translation/"
+base_path = './'
+
 class Encoder(nn.Module):
     def __init__(self, input_size, embed_size, hidden_size, src_padding_id, dropout_rate=0.2, n_layers=5):
         super(Encoder, self).__init__()
@@ -28,6 +31,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.hidden_size = hidden_size
         self.model_embeddings = nn.Embedding(input_size, embed_size, padding_idx=tgt_padding_id)
+        # self.model_embeddings.load_state_dict({'weight': self.get_embeddings()})
         self.lstm_cell = nn.LSTMCell(embed_size + hidden_size, hidden_size, bias=True)
         self.combined_op_fc = nn.Linear(hidden_size*3, hidden_size, bias=False)
         self.attention = nn.Linear(hidden_size*2, hidden_size, bias=False)
@@ -73,6 +77,12 @@ class Decoder(nn.Module):
         combined_output = O_t
         return dec_state, combined_output, e_t
 
+    @staticmethod
+    def get_embeddings():
+        weights = pickle.load(open(base_path+"weights/tgt_weights300d.pkl", 'rb'))
+        weights.to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
+        return weights
+
 class Seq2Seq(nn.Module):
     def __init__(self, embed_size, hidden_size, tokenizer, dropout_rate=0.2, n_layers=5):
         super(Seq2Seq, self).__init__()
@@ -105,5 +115,3 @@ class Seq2Seq(nn.Module):
         for id, src_len in enumerate(src_len):
             enc_mask[id, src_len:] = 1
         return enc_mask.to(device)
-
-

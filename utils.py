@@ -9,13 +9,14 @@ from collections import namedtuple
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 from NMTtokenizers.tokenizer import SpaceTokenizer
 import time, os
+import pickle, json
 
 def open_file(path):
     sents = []
     with open(path, encoding='utf8') as f:
         text = f.read().splitlines()
         for s in text:
-            sents.append(s.strip())
+            sents.append(s.strip().lower())
     return sents
 
 def compute_bleu_score(output, labels):
@@ -159,6 +160,8 @@ def beam_search(model, src_sent, beam_size, max_decoding_time_step, device):
 
     return completed_hypotheses
 
+# def trainer_trans(model, optimizer, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
+
 def trainer(model, optimizer, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
     eval_loss = float('inf')
     start_epoch = 0
@@ -192,7 +195,7 @@ def trainer(model, optimizer, train_dl, valid_dl, batch_size, epoch, device, LOG
 
         print(f'Epoch: {epoch} Compeleted | avg. train loss: {epoch_train_loss/total_iters} | time elapsed: {time.time() - epoch_start_time}')
         eval_start_time = time.time()
-        epoch_eval_loss,bleu_score = evaluate(model, valid_dl, epoch_eval_loss, device, batch_size, beam_size, max_decoding_time_step)
+        epoch_eval_loss, bleu_score = evaluate(model, valid_dl, epoch_eval_loss, device, batch_size, beam_size, max_decoding_time_step)
         print(f'Completed Epoch: {epoch} | avg. eval loss: {epoch_eval_loss:.5f} | BLEU Score: {bleu_score} | time elapsed: {time.time() - eval_start_time}')
 
         check_pt = {
@@ -213,5 +216,30 @@ def trainer(model, optimizer, train_dl, valid_dl, batch_size, epoch, device, LOG
         print(f"Checkpoint saved successfully with time: {time.time() - check_pt_time}")
 
     return model
+
+
+def main():
+    
+    words_found = 0
+    vectors = pickle.load(open("./weights/weights300d.pkl", 'rb'))
+    words = pickle.load(open("./weights/words300d.pkl", 'rb'))
+    words2idx = pickle.load(open("./weights/word2idx300d.pkl", 'rb'))
+
+    glove = {w: vectors[words2idx[w]] for w in words}
+    all_words = json.load(open("./NMTtokenizers/spacetoken_vocab_files/vocab_eng.json", 'r'))
+    weight_mat = torch.zeros((len(all_words), 300))
+    for k, v in all_words.items():
+        try:
+            weight_mat[v] = glove[k.lower()]
+            words_found += 1
+        except KeyError:
+            weight_mat[v] = torch.randn(300)
+    print(f"Total found words in Glove Embeddings is: {words_found}")
+    print(f"size of weights: {weight_mat.shape}")
+    pickle.dump(weight_mat, open("./weights/tgt_weights300d.pkl", "wb"))
+
+if __name__ == '__main__':
+    main()
+
     
     
