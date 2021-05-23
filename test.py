@@ -8,20 +8,20 @@ from NMTtokenizers.tokenizer import *
 from utils import *
 import time
 from models.transformer import TransformerModel
-from beam import greedy_decode, beam
+from beam import greedy_decode
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16
-embed_size = 192
+embed_size = 256
 hidden_size = 128
-dropout_rate = 0.1  
+dropout_rate = 0.2  
 n_layers = 2
 beam_size = 5
-epoch = 25
-n_heads = 8
+epoch = 30
+n_heads = 2
 LOG_EVERY = 1
-max_decoding_time_step = 15
+max_decoding_time_step = 20
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
 base_path = "./"
@@ -40,7 +40,8 @@ def collate_fn(batch):
 def compute_bleu_score(output, labels):
     refs = SpaceTokenizer.tokenize(labels, batch=True, wrap_inner_list = True)
     output_tokens = SpaceTokenizer.tokenize(output, batch=True)
-    weights = (1.0/2.0, 1.0/2.0, )
+    # weights = (1.0/2.0, 1.0/2.0, )
+    weights = (1.0, )
     score = corpus_bleu(refs, output_tokens, smoothing_function=SmoothingFunction(epsilon=1e-10).method1, weights=weights)
     return score
 
@@ -79,21 +80,22 @@ def train(**kwargs):
                 n_heads, dropout=dropout_rate)
 
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
-    param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
-        'weight_decay_rate': 0.01},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
-        'weight_decay_rate': 0.0}
-    ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=1e-3)
+    # param_optimizer = list(model.named_parameters())
+    # no_decay = ['bias', 'LayerNorm.weight']
+    # optimizer_grouped_parameters = [
+    #     {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+    #     'weight_decay_rate': 0.01},
+    #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
+    #     'weight_decay_rate': 0.0}
+    # ]
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     
-    train_model(model, optimizer, criterion, train_dl, valid_dl, BATCH_SIZE, epoch, 
+    train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, BATCH_SIZE, epoch, 
                             device, LOG_EVERY, kwargs["checkpoint_path"], kwargs["best_model"], 
                             beam_size, max_decoding_time_step)
                             
-def train_model(model, optimizer, criterion, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
+def train_model(model, optimizer, scheduler, criterion, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
     eval_loss = float('inf')
     start_epoch = 0
     if os.path.exists(checkpt_path):
@@ -123,6 +125,7 @@ def train_model(model, optimizer, criterion, train_dl, valid_dl, batch_size, epo
 
             loss = criterion(preds, targets)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             epoch_train_loss += loss.item()/batch_size
 
@@ -139,20 +142,16 @@ def train_model(model, optimizer, criterion, train_dl, valid_dl, batch_size, epo
                 loss = criterion(preds, targets)
                 epoch_eval_loss += loss.item()/batch_size
 
-                translator = Translator(model, beam_size, max_decoding_time_step, 
-                        model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[PAD]'], 
-                        model.tokenizer.tgt_vocab['[SOS]'], model.tokenizer.tgt_vocab['[EOS]']).to(device)
                 output = []
                 for src in src_tensor:
-                    pred_seq = translator.translate_sentence(src.view(1, -1), device)
-                    pred_line = ' '.join(model.tokenizer.tgt_vocab.id2word[idx] for idx in pred_seq)
-                    pred_line = pred_line.replace('[SOS]', '').replace('[EOS]', '')
-                    output.append(pred_line)
+                    hyps = beam_search_transformer(model, src.view(1, -1), beam_size, max_decoding_time_step, 
+                        model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[EOS]'], device)
+                    top_hyp = hyps[0]
+                    hyp_sent = ' '.join(top_hyp.value)
+                    output.append(hyp_sent)
                     
-                # print(output)
                 score = compute_bleu_score(output, batch[1])
                 bleu_score += score
-                # print(f"Bleu Score: {bleu_score}")
 
         print(f'Epoch: {epoch} Compeleted | avg. train loss: {epoch_train_loss/len(train_dl)} | time elapsed: {time.time() - epoch_start_time}')
         print(f'Epoch: {epoch} Compeleted | avg. eval loss: {epoch_eval_loss/len(valid_dl)} | BLEU Score: {bleu_score/len(valid_dl)} | time elapsed: {time.time() - epoch_start_time}')
@@ -173,29 +172,60 @@ def train_model(model, optimizer, criterion, train_dl, valid_dl, batch_size, epo
         else:
             save_model_checkpt(check_pt, False, checkpt_path, best_model_path)  
         print(f"Checkpoint saved successfully with time: {time.time() - check_pt_time}")
+        scheduler.step()
 
-# @task.command()
-# @click.option('--src_test', default=base_path+"dataset/src_test.txt", help="test source file path")
-# @click.option('--tgt_test', default=base_path+"dataset/tgt_test.txt", help="test target file path")
-# @click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
-# @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
-# def test(**kwargs):
-#     print("loading dataset")
-#     test_dataset = NMTDataset(kwargs["src_test"], kwargs["tgt_test"])
-#     print("Dataset loaded successfully.")
-#     test_dl = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-#     tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-#                 base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
-#                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
-#                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
-#                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
-#                 )
-#     model = Seq2Seq(embed_size, hidden_size, tokenizer, dropout_rate=dropout_rate, n_layers=n_layers)
-#     model.to(device)
-#     model, _, _, _ = load_checkpt(model, kwargs['best_model'], device)
-#     eval_start_time = time.time()
-#     test_loss, bleu_score = evaluate(model, test_dl, 0, device, BATCH_SIZE, beam_size, max_decoding_time_step)
-#     print(f'Avg. test loss: {test_loss:.5f} | BLEU Score: {bleu_score} | time elapsed: {time.time() - eval_start_time}')
+@task.command()
+@click.option('--src_test', default=base_path+"dataset/src_test.txt", help="test source file path")
+@click.option('--tgt_test', default=base_path+"dataset/tgt_test.txt", help="test target file path")
+@click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
+@click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
+def test(**kwargs):
+    src_sent = open_file(kwargs['src_test'])
+    tgt_sent = open_file(kwargs['tgt_test'])
+    test_dataset = NMTDataset(kwargs["src_test"], kwargs["tgt_test"])
+    print("Dataset loaded successfully.")
+
+    test_dl = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
+    
+    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
+                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+                ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
+                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
+                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
+                )
+    model = TransformerModel(len(tokenizer.src_vocab), len(tokenizer.tgt_vocab), tokenizer, embed_size, 
+                n_heads, dropout=dropout_rate)
+    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
+
+    model.to(device)
+    model.eval()
+    bleu_score = 0
+    test_loss = 0
+    test_start_time = time.time()
+    with torch.no_grad():
+        for step, batch in enumerate(test_dl):
+            src_tensor, tgt_tensor, _, _ = model.tokenizer.encode(batch, device, return_tensor=True)
+            src_tensor = src_tensor.transpose(0,1)
+            tgt_tensor = tgt_tensor.transpose(0,1)
+            trg_input = tgt_tensor[:, :-1]
+            targets = tgt_tensor[:, 1:].contiguous().view(-1)
+            preds = model(src_tensor, trg_input.to(device), device)
+                
+            loss = criterion(preds, targets)
+            test_loss += loss.item()/BATCH_SIZE
+
+            output = []
+            for src in src_tensor:
+                hyps = beam_search_transformer(model, src.view(1, -1), beam_size, max_decoding_time_step, 
+                    model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[EOS]'], device)
+                top_hyp = hyps[0]
+                hyp_sent = ' '.join(top_hyp.value)
+                output.append(hyp_sent)
+                
+            score = compute_bleu_score(output, batch[1])
+            bleu_score += score
+    print(f'Avg. test loss: {test_loss/len(test_dl):.5f} | BLEU Score: {bleu_score/len(test_dl)} | time elapsed: {time.time() - test_start_time}')
+
 
 @task.command()
 @click.option('--src_file', default=base_path+"dataset/src_file.txt", help="Source file path")
@@ -217,20 +247,23 @@ def decode(**kwargs):
     model, _, _, _ = load_checkpt(model, kwargs['best_model'], device)
     src_tensor, _ = tokenizer.encode(src_sent, device, return_tensor=True)
 
-    # predictor = Predictor(model, max_decoding_time_step, beam_size)
-
     # translator = Translator(model, beam_size, max_decoding_time_step, 
     #                     model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[PAD]'], 
     #                     model.tokenizer.tgt_vocab['[SOS]'], model.tokenizer.tgt_vocab['[EOS]']).to(device)
     output = []
-    for src in src_tensor:
+    for src in src_tensor.transpose(0,1):
         # pred_seq = translator.translate_sentence(src.view(1, -1), device)
-        pred_seq = greedy_decode(model, src.view(1, -1), max_decoding_time_step, model.tokenizer.tgt_vocab['[SOS]'], 
-                model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[EOS]'], device)
-        pred_line = ' '.join(model.tokenizer.tgt_vocab.id2word[idx] for idx in pred_seq)
-        pred_line = pred_line.replace('[SOS]', '').replace('[EOS]', '')
-        output.append(pred_line)
-        print(pred_line)
+        hyps = beam_search_transformer(model, src.view(1, -1), beam_size, max_decoding_time_step, 
+                        model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[EOS]'], device)
+        # pred_seq = greedy_decode(model, src.view(1, -1), max_decoding_time_step, model.tokenizer.tgt_vocab['[SOS]'], 
+        #         model.tokenizer.src_vocab['[PAD]'], model.tokenizer.tgt_vocab['[EOS]'], device)
+        top_hyp = hyps[0]
+        hyp_sent = ' '.join(top_hyp.value)
+        print(hyp_sent)
+        # pred_line = ' '.join(model.tokenizer.tgt_vocab.id2word[idx] for idx in pred_seq)
+        # pred_line = pred_line.replace('[SOS]', '').replace('[EOS]', '')
+        # output.append(pred_line)
+        # print(pred_line)
     # print(output)
 
 if __name__ == "__main__":

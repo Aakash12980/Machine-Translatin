@@ -2,6 +2,7 @@ from sys import base_prefix
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from utils import open_file
+from NMTtokenizers.tokenizer import SpaceTokenizer
 
 class NMTDataset(Dataset):
     def __init__(self, src_path, tgt_path=None) :
@@ -29,8 +30,8 @@ class NMTDataset(Dataset):
         print(f"File written successfully at {file_path}")
 
     @staticmethod
-    def create_train_test_valid_data(src_path, tgt_path):
-        base_path = "./dataset/"
+    def create_train_test_valid_data(src_path, tgt_path, base_path):
+        
         x = open_file(src_path)
         y = open_file(tgt_path)
         src_train, src, tgt_train, tgt = train_test_split(x, y, test_size=0.2, shuffle=True)
@@ -45,23 +46,42 @@ class NMTDataset(Dataset):
     @staticmethod
     def edit_dataset(src_path, tgt_path):
         x = open_file(src_path)
-        y = open_file(tgt_path)
-        with open("src.txt", "w", encoding="utf8") as f:
+        y = open_file(tgt_path) 
+        i=0
+        residual = []
+        with open("./nep_dataset/src.txt", "w", encoding="utf8") as f:
             for sent in x:
+                i+=1
+                if len(sent.strip()) < 6:
+                    residual.append(i)
+                    continue
                 if sent.strip()[-1] not in ['।', '?', '!']:
                     f.write(sent + '।\n')
                 else:
                     f.write(sent + '\n')
-        with open("tgt.txt", "w", encoding="utf8") as f:
+        j = 0
+        with open("./nep_dataset/tgt.txt", "w", encoding="utf8") as f:
             for sent in y:
+                j+=1
+                if j in residual:
+                    continue
                 if sent.strip()[-1] not in ['.', '!', '?']:
                     f.write(sent + '.\n')
                 else:
                     f.write(sent + '\n')
                     
 
-
 if __name__ == "__main__":
-    # NMTDataset.create_train_test_valid_data("./dataset/Newa_SS.txt", "./dataset/Eng_SS.txt")
-    # NMTDataset.edit_dataset("./dataset/Newa_SS.txt", "./dataset/Eng_SS.txt")
-    pass
+    # base_path = "./nep_dataset/"
+    # NMTDataset.create_train_test_valid_data("./nep_dataset/src.txt", "./nep_dataset/tgt.txt", base_path)
+    # NMTDataset.edit_dataset("./nep_dataset/nepali.txt", "./nep_dataset/english.txt")
+
+    newa_file = "nep_dataset/src_train.txt"
+    eng_file = "nep_dataset/tgt_train.txt"
+
+    vocab_newa_file = "NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json"
+    vocab_eng_file = "NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
+    SpaceTokenizer.create_vocab(eng_file, vocab_eng_file)
+    SpaceTokenizer.create_vocab(newa_file, vocab_newa_file)
+
+    # pass

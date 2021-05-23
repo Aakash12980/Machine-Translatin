@@ -1,78 +1,9 @@
 from collections import namedtuple
 import torch
 import torch.nn as nn
-from torch.nn.functional import log_softmax
 from models.transformer import get_src_mask, get_tgt_mask
-   
-
-def beam(model, src_sent, beam_size, max_decoding_time_step, start_symbol, device):
-    Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
-    log_softmax = nn.LogSoftmax(dim=-1)
-    src_embed = model.src_embeddings(src_sent)
-    memory = model.encoder(model.pos_encoder(src_embed))
-
-    hypotheses = [['[SOS]']]
-    hyp_scores = torch.zeros(len(hypotheses), dtype=torch.float, device=device)
-    completed_hypotheses = []
-
-    t = 0
-    while len(completed_hypotheses) < beam_size and t < max_decoding_time_step:
-        t += 1
-        ys = model.tokenizer.tgt_vocab.get_tensor(hypotheses, device)
-        # ys = torch.ones(len(hypotheses), 1).fill_(start_symbol).type_as(src_sent.data)
-        np_mask = torch.triu(torch.ones(ys.size(0), ys.size(0))==1).transpose(0,1)
-        np_mask = np_mask.float().masked_fill(np_mask == 0, float('-inf')).masked_fill(np_mask == 1, float(0.0))
-        tgt_embed = model.tgt_embeddings(ys)
-
-        out = model.decoder(model.pos_encoder(tgt_embed), memory,
-                           np_mask.to(device))
-        out = model.out(out)
-        prob = log_softmax(out.transpose(0,1)[:, -1])
-        live_hyp_num = beam_size - len(completed_hypotheses)
-        
-        contiuating_hyp_scores = (hyp_scores.unsqueeze(1).expand_as(prob) + prob).view(-1)
-        top_cand_hyp_scores, top_cand_hyp_pos = torch.topk(contiuating_hyp_scores, k=live_hyp_num)
-
-        prev_hyp_ids = top_cand_hyp_pos // len(model.tokenizer.tgt_vocab)
-        hyp_word_ids = top_cand_hyp_pos % len(model.tokenizer.tgt_vocab)
-
-        new_hypotheses = []
-        live_hyp_ids = []
-        new_hyp_scores = []
-
-        for prev_hyp_id, hyp_word_id, cand_new_hyp_score in zip(prev_hyp_ids, hyp_word_ids, top_cand_hyp_scores):
-            prev_hyp_id = prev_hyp_id.item()
-            hyp_word_id = hyp_word_id.item()
-            cand_new_hyp_score = cand_new_hyp_score.item()
-
-            hyp_word = model.tokenizer.tgt_vocab.id2word[hyp_word_id]
-            new_hyp_sent = hypotheses[prev_hyp_id] + [hyp_word]
-
-            if hyp_word == '[EOS]':
-                completed_hypotheses.append(Hypothesis(value=new_hyp_sent[1:-1],
-                                                        score=cand_new_hyp_score))
-            else:
-                new_hypotheses.append(new_hyp_sent)
-                live_hyp_ids.append(prev_hyp_id)
-                new_hyp_scores.append(cand_new_hyp_score)
-
-        if len(completed_hypotheses) == beam_size:
-            break
-
-        live_hyp_ids = torch.tensor(live_hyp_ids, dtype=torch.long, device=device)
-
-        hypotheses = new_hypotheses
-        hyp_scores = torch.tensor(new_hyp_scores, dtype=torch.float, device=device)
-    if len(completed_hypotheses) == 0:
-        completed_hypotheses.append(Hypothesis(value=hypotheses[0][1:],
-                                                score=hyp_scores[0].item()))
-
-    completed_hypotheses.sort(key=lambda hyp: hyp.score, reverse=True)
-    return completed_hypotheses
 
 class Translator(nn.Module):
-
-    ''' Load a trained model and translate in beam search fashion. '''
 
     def __init__(
             self, model, beam_size, max_seq_len,
@@ -202,171 +133,64 @@ def greedy_decode(model, src, max_len, tgt_sos_symbol, src_pad_token, tgt_eos_sy
     return trg_seq.squeeze().tolist()
 
 
-class Beam:
+def beam_search_transformer(model, src_tensor, beam_size, max_decoding_time_step, src_pad_idx, eos_id, device):
+    Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
-    def __init__(self, beam_size=8, min_length=0, n_top=1, ranker=None,
-                 start_token_id=2, end_token_id=3):
-        self.beam_size = beam_size
-        self.min_length = min_length
-        self.ranker = ranker
+    log_softmax = nn.LogSoftmax(dim=-1)
+    src_mask = get_src_mask(src_tensor, src_pad_idx)
+    memory = model.encoder(src_tensor.transpose(0,1), src_mask.to(device))
 
-        self.end_token_id = end_token_id
-        self.top_sentence_ended = False
+    hypotheses = [['[SOS]']]
+    hyp_scores = torch.zeros(len(hypotheses), dtype=torch.float, device=device) 
+    completed_hypotheses = []
 
-        self.prev_ks = []
-        self.next_ys = [torch.LongTensor(beam_size).fill_(start_token_id)] # remove padding
+    t = 0
+    while len(completed_hypotheses) < beam_size and t < max_decoding_time_step:
+        t += 1
+        hyp_num = len(hypotheses)
 
-        self.current_scores = torch.FloatTensor(beam_size).zero_()
-        self.all_scores = []
+        trg_seq = torch.tensor([model.tokenizer.tgt_vocab[hyp[-1]] for hyp in hypotheses], dtype=torch.long, device=device)
+        output = model.decoder(trg_seq.view(-1,1), memory.to(device)) 
 
-        # The attentions (matrix) for each time.
-        self.all_attentions = []
+        # log probabilities over target words
+        log_p_t = log_softmax(model.out(output).transpose(0,1))
 
-        self.finished = []
+        live_hyp_num = beam_size - len(completed_hypotheses)
+        contiuating_hyp_scores = (hyp_scores.unsqueeze(1).expand_as(log_p_t) + log_p_t).view(-1)
+        top_cand_hyp_scores, top_cand_hyp_pos = torch.topk(contiuating_hyp_scores, k=live_hyp_num)
 
-        # Time and k pair for finished.
-        self.finished = []
-        self.n_top = n_top
+        prev_hyp_ids = top_cand_hyp_pos // len(model.tokenizer.tgt_vocab)
+        hyp_word_ids = top_cand_hyp_pos % len(model.tokenizer.tgt_vocab)
 
-        self.ranker = ranker
+        new_hypotheses = []
+        live_hyp_ids = []
+        new_hyp_scores = []
 
-    def advance(self, next_log_probs, current_attention):
-        # next_probs : beam_size X vocab_size
-        # current_attention: (target_seq_len=1, beam_size, source_seq_len)
+        for prev_hyp_id, hyp_word_id, cand_new_hyp_score in zip(prev_hyp_ids, hyp_word_ids, top_cand_hyp_scores):
+            prev_hyp_id = prev_hyp_id.item()
+            hyp_word_id = hyp_word_id.item()
+            cand_new_hyp_score = cand_new_hyp_score.item()
 
-        vocabulary_size = next_log_probs.size(1)
-        # current_beam_size = next_log_probs.size(0)
+            hyp_word = model.tokenizer.tgt_vocab.id2word[hyp_word_id]
+            new_hyp_sent = hypotheses[prev_hyp_id] + [hyp_word]
+            if hyp_word == '[EOS]':
+                completed_hypotheses.append(Hypothesis(value=new_hyp_sent[1:-1],
+                                                        score=cand_new_hyp_score))
+            else:
+                new_hypotheses.append(new_hyp_sent)
+                live_hyp_ids.append(prev_hyp_id)
+                new_hyp_scores.append(cand_new_hyp_score)
 
-        current_length = len(self.next_ys)
-        if current_length < self.min_length:
-            for beam_index in range(len(next_log_probs)):
-                next_log_probs[beam_index][self.end_token_id] = -1e10
+        if len(completed_hypotheses) == beam_size:
+            break
 
-        if len(self.prev_ks) > 0:
-            beam_scores = next_log_probs + self.current_scores.unsqueeze(1).expand_as(next_log_probs)
-            # Don't let EOS have children.
-            last_y = self.next_ys[-1]
-            for beam_index in range(last_y.size(0)):
-                if last_y[beam_index] == self.end_token_id:
-                    beam_scores[beam_index] = -1e10 # -1e20 raises error when executing
-        else:
-            beam_scores = next_log_probs[0]
-        flat_beam_scores = beam_scores.view(-1)
-        top_scores, top_score_ids = flat_beam_scores.topk(k=self.beam_size, dim=0, largest=True, sorted=True)
+        hypotheses = new_hypotheses
+        hyp_scores = torch.tensor(new_hyp_scores, dtype=torch.float, device=device)
 
-        self.current_scores = top_scores
-        self.all_scores.append(self.current_scores)
+    if len(completed_hypotheses) == 0:
+        completed_hypotheses.append(Hypothesis(value=hypotheses[0][1:],
+                                                score=hyp_scores[0].item()))
 
-        prev_k = top_score_ids / vocabulary_size  # (beam_size, )
-        next_y = top_score_ids - prev_k * vocabulary_size  # (beam_size, )
+    completed_hypotheses.sort(key=lambda hyp: hyp.score, reverse=True)
 
-        self.prev_ks.append(prev_k)
-        self.next_ys.append(next_y)
-        # for RNN, dim=1 and for transformer, dim=0.
-        prev_attention = current_attention.index_select(dim=0, index=prev_k)  # (target_seq_len=1, beam_size, source_seq_len)
-        self.all_attentions.append(prev_attention)
-
-
-        for beam_index, last_token_id in enumerate(next_y):
-            if last_token_id == self.end_token_id:
-                # skip scoring
-                self.finished.append((self.current_scores[beam_index], len(self.next_ys) - 1, beam_index))
-
-        if next_y[0] == self.end_token_id:
-            self.top_sentence_ended = True
-
-    def get_current_state(self):
-        "Get the outputs for the current timestep."
-        return self.next_ys[-1]
-
-    def get_current_origin(self):
-        "Get the backpointers for the current timestep."
-        return self.prev_ks[-1]
-
-    def done(self):
-        return self.top_sentence_ended and len(self.finished) >= self.n_top
-
-    def get_hypothesis(self, timestep, k):
-        hypothesis, attentions = [], []
-        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
-            hypothesis.append(self.next_ys[j + 1][k])
-            # for RNN, [:, k, :], and for trnasformer, [k, :, :]
-            attentions.append(self.all_attentions[j][k, :, :])
-            k = self.prev_ks[j][k]
-        attentions_tensor = torch.stack(attentions[::-1]).squeeze(1)  # (timestep, source_seq_len)
-        return hypothesis[::-1], attentions_tensor
-
-    def sort_finished(self, minimum=None):
-        if minimum is not None:
-            i = 0
-            # Add from beam until we have minimum outputs.
-            while len(self.finished) < minimum:
-                # global_scores = self.global_scorer.score(self, self.scores)
-                # s = global_scores[i]
-                s = self.current_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-                i += 1
-
-        self.finished = sorted(self.finished, key=lambda a: a[0], reverse=True)
-        scores = [sc for sc, _, _ in self.finished]
-        ks = [(t, k) for _, t, k in self.finished]
-        return scores, ks
-
-class Predictor:
-
-    def __init__(self, model, max_length=30, beam_size=8):
-        # self.preprocess = preprocess
-        # self.postprocess = postprocess
-        self.model = model
-        self.max_length = max_length
-        self.beam_size = beam_size
-
-    def predict_one(self, source_tensor, device, num_candidates=5):
-        # source_preprocessed = self.preprocess(source)
-        # source_tensor = torch.tensor(source_preprocessed).unsqueeze(0)  # why unsqueeze?
-        # length_tensor = torch.tensor(len(source_preprocessed)).unsqueeze(0)
-
-        sources_mask = get_src_mask(source_tensor, 0)
-        memory = self.model.encoder(source_tensor, sources_mask)
-
-        # decoder_state = self.model.decoder.init_decoder_state()
-        # print('decoder_state src', decoder_state.src.shape)
-        # print('previous_input previous_input', decoder_state.previous_input)
-        # print('previous_input previous_layer_inputs ', decoder_state.previous_layer_inputs)
-
-
-        # Repeat beam_size times
-        memory_beam = memory.detach().repeat(1, self.beam_size, 1)  # (beam_size, seq_len, hidden_size)
-
-        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=num_candidates, ranker=None)
-
-        for _ in range(self.max_length):
-
-            new_inputs = beam.get_current_state().unsqueeze(1)  # (beam_size, seq_len=1)
-            print(new_inputs.shape)
-            memory_mask = get_tgt_mask(new_inputs)
-            print(memory_mask.shape)
-            print(memory_beam.shape)
-            decoder_outputs = self.model.decoder(new_inputs.transpose(0,1), memory_beam,
-                                                                            memory_mask)
-            # decoder_outputs: (beam_size, target_seq_len=1, vocabulary_size)
-            # attentions['std']: (target_seq_len=1, beam_size, source_seq_len)
-
-            attention = self.model.decoder.decoder_layers[-1].memory_attention_layer.sublayer.attention
-            beam.advance(decoder_outputs.squeeze(1), attention)
-
-            if beam.done():
-                break
-
-        scores, ks = beam.sort_finished(minimum=num_candidates)
-        hypothesises, attentions = [], []
-        for i, (times, k) in enumerate(ks[:num_candidates]):
-            hypothesis, attention = beam.get_hypothesis(times, k)
-            hypothesises.append(hypothesis)
-            attentions.append(attention)
-
-        self.attentions = attentions
-        self.hypothesises = [[token.item() for token in h] for h in hypothesises]
-        # hs = [self.postprocess(h) for h in self.hypothesises]
-        exit()
-        return list(reversed(hs))
+    return completed_hypotheses

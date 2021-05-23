@@ -129,8 +129,8 @@ class SpaceTokenizer():
         hypotheses = []
         with torch.no_grad():
             for src_sent in src_sent_list:
-                # example_hyps = utils.beam_search(model, src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, device=device)
-                example_hyps = beam(model, src_sent, beam_size, max_decoding_time_step, 2, device)
+                example_hyps = utils.beam_search(model, src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, device=device)
+                # example_hyps = beam(model, src_sent, beam_size, max_decoding_time_step, 2, device)
                 hypotheses.append(example_hyps)
                 # print(hypotheses)
         if was_training: model.train(was_training)

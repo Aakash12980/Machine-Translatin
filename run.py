@@ -14,14 +14,14 @@ CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 64
 embed_size = 300
-hidden_size = 256
-dropout_rate = 0.5
-n_layers = 1
+hidden_size = 512
+dropout_rate = 0.2
+n_layers = 2
 beam_size = 5
-epoch = 30
+epoch = 5
 n_heads = 8
 LOG_EVERY = 5
-max_decoding_time_step = 40
+max_decoding_time_step = 15
 # base_path = "./drive/My Drive/Machine Translation/"
 base_path = "./"
 src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json"
@@ -52,10 +52,10 @@ def task():
 @click.option('--tgt_train', default=base_path+"dataset/tgt_train.txt", help="train target file path")
 @click.option('--src_valid', default=base_path+"dataset/src_valid.txt", help="validation source file path")
 @click.option('--tgt_valid', default=base_path+"dataset/tgt_valid.txt", help="validation target file path")
-@click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
+@click.option('--best_model', default=base_path+"best_model/lstm_model.pt", help="best model file path")
 @click.option('--model', default="lstm", help="transformer or lstm")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
-@click.option('--checkpoint_path', default=base_path+"checkpoint/model_ckpt.pt", help=" model check point files path")
+@click.option('--checkpoint_path', default=base_path+"checkpoint/lstm_model_ckpt.pt", help=" model check point files path")
 @click.option('--seed', default=123, help="manual seed value (default=123)")
 def train(**kwargs):
     print("loading dataset")
@@ -85,7 +85,7 @@ def train(**kwargs):
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
         'weight_decay_rate': 0.0}
     ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=3e-3)
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=0.001)
     model.to(device)
     model  = trainer(model, optimizer, train_dl, valid_dl, BATCH_SIZE, epoch, 
                             device, LOG_EVERY, kwargs["checkpoint_path"], kwargs["best_model"], 
@@ -94,7 +94,7 @@ def train(**kwargs):
 @task.command()
 @click.option('--src_test', default=base_path+"dataset/src_test.txt", help="test source file path")
 @click.option('--tgt_test', default=base_path+"dataset/tgt_test.txt", help="test target file path")
-@click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
+@click.option('--best_model', default=base_path+"best_model/lstm_model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def test(**kwargs):
     print("loading dataset")
@@ -117,7 +117,7 @@ def test(**kwargs):
 @task.command()
 @click.option('--src_file', default=base_path+"dataset/src_file.txt", help="Source file path")
 @click.option('--output_file', default=base_path+"dataset/out.txt", help="Output file path")
-@click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
+@click.option('--best_model', default=base_path+"best_model/lstm_model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def decode(**kwargs):
     src_sent = open_file(kwargs['src_file'])
@@ -139,6 +139,7 @@ def decode(**kwargs):
             top_hyp = hyps[0]
             hyp_sent = ' '.join(top_hyp.value)
             f.write(hyp_sent + '\n')
+            print(hyp_sent)
 
 if __name__ == "__main__":
     task()
