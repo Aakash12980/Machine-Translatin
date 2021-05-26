@@ -12,23 +12,23 @@ from models.transformer import TransformerModel
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-BATCH_SIZE = 64
+BATCH_SIZE = 1
 embed_size = 300
 hidden_size = 512
 dropout_rate = 0.2
 n_layers = 2
 beam_size = 5
-epoch = 5
+epoch = 150
 n_heads = 8
 LOG_EVERY = 5
-max_decoding_time_step = 15
-# base_path = "./drive/My Drive/Machine Translation/"
-base_path = "./"
-src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json"
-tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+max_decoding_time_step = 20
+base_path = "./drive/My Drive/Machine Translation/"
+# base_path = "./"
+src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json"
+tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
 if not (os.path.exists(src_vocab_path) or os.path.exists(tgt_vocab_path)):
-    newa_file = base_path+"dataset/src_train.txt"
-    eng_file = base_path+"dataset/tgt_train.txt"
+    newa_file = base_path+"nep_dataset/src_train.txt"
+    eng_file = base_path+"nep_dataset/tgt_train.txt"
     SpaceTokenizer.create_vocab(eng_file, tgt_vocab_path)
     SpaceTokenizer.create_vocab(newa_file, src_vocab_path)
     print("Vocabulary created....")
@@ -48,10 +48,10 @@ def task():
     pass
 
 @task.command()
-@click.option('--src_train', default=base_path+"dataset/src_train.txt", help="train source file path")
-@click.option('--tgt_train', default=base_path+"dataset/tgt_train.txt", help="train target file path")
-@click.option('--src_valid', default=base_path+"dataset/src_valid.txt", help="validation source file path")
-@click.option('--tgt_valid', default=base_path+"dataset/tgt_valid.txt", help="validation target file path")
+@click.option('--src_train', default=base_path+"nep_dataset/src_train.txt", help="train source file path")
+@click.option('--tgt_train', default=base_path+"nep_dataset/tgt_train.txt", help="train target file path")
+@click.option('--src_valid', default=base_path+"nep_dataset/src_valid.txt", help="validation source file path")
+@click.option('--tgt_valid', default=base_path+"nep_dataset/tgt_valid.txt", help="validation target file path")
 @click.option('--best_model', default=base_path+"best_model/lstm_model.pt", help="best model file path")
 @click.option('--model', default="lstm", help="transformer or lstm")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
@@ -65,8 +65,8 @@ def train(**kwargs):
 
     train_dl = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
     valid_dl = DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json", 
+                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
@@ -92,8 +92,8 @@ def train(**kwargs):
                             beam_size, max_decoding_time_step)
 
 @task.command()
-@click.option('--src_test', default=base_path+"dataset/src_test.txt", help="test source file path")
-@click.option('--tgt_test', default=base_path+"dataset/tgt_test.txt", help="test target file path")
+@click.option('--src_test', default=base_path+"nep_dataset/src_test.txt", help="test source file path")
+@click.option('--tgt_test', default=base_path+"nep_dataset/tgt_test.txt", help="test target file path")
 @click.option('--best_model', default=base_path+"best_model/lstm_model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def test(**kwargs):
@@ -101,8 +101,8 @@ def test(**kwargs):
     test_dataset = NMTDataset(kwargs["src_test"], kwargs["tgt_test"])
     print("Dataset loaded successfully.")
     test_dl = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json", 
+                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
@@ -115,14 +115,14 @@ def test(**kwargs):
     print(f'Avg. test loss: {test_loss:.5f} | BLEU Score: {bleu_score} | time elapsed: {time.time() - eval_start_time}')
 
 @task.command()
-@click.option('--src_file', default=base_path+"dataset/src_file.txt", help="Source file path")
-@click.option('--output_file', default=base_path+"dataset/out.txt", help="Output file path")
+@click.option('--src_file', default=base_path+"nep_dataset/src_file.txt", help="Source file path")
+@click.option('--output_file', default=base_path+"nep_dataset/out.txt", help="Output file path")
 @click.option('--best_model', default=base_path+"best_model/lstm_model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def decode(**kwargs):
     src_sent = open_file(kwargs['src_file'])
-    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json", 
+                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
                     base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"

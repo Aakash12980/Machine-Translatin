@@ -32,8 +32,8 @@ class Encoder(nn.Module):
     def forward(self, src, src_mask):
         src = self.src_embeddings(src)
         src = self.pos_encoder(src)
-        # return self.encoder(src, src_key_padding_mask=src_mask)
-        return self.encoder(src)
+        return self.encoder(src, src_key_padding_mask=src_mask) #src_mask is giving error.
+        # return self.encoder(src)
         
 class Decoder(nn.Module):
     def __init__(self, tgt_vocab_len, model_dim, fc_dim, n_heads, n_dec_layers, pad_idx, dropout, activation):
@@ -67,22 +67,23 @@ class TransformerModel(nn.Module):
         self._reset_parameters()
 
     def forward(self, src, tgt, device):
+        # src, tgt have shape (batch, seq_len)
         assert src.size(0) == tgt.size(0), "The batch size of source and target sentences should be equal."
         src_mask = get_src_mask(src, self.tokenizer.src_vocab["[PAD]"])
         tgt_mask = get_tgt_mask(tgt)
-        enc_encodings = self.encoder(src.transpose(0,1), src_mask.to(device))
+        enc_encodings = self.encoder(src.transpose(0,1), src_mask.to(device)) 
         output = self.decoder(tgt.transpose(0,1), enc_encodings, tgt_mask.to(device))
-        output = self.out(output)
-        return output.transpose(0,1).contiguous().view(-1, output.size(-1))
-        # return output.view(-1, output.size(-1))
+        output = self.out(output.transpose(0,1))
+        return output.contiguous().view(-1, output.size(-1))
 
     def _reset_parameters(self):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-def get_src_mask(src_tensor, src_pad_id):   
-    return (src_tensor != src_pad_id)
+def get_src_mask(src_tensor, src_pad_id):
+    mask = src_tensor != src_pad_id   
+    return mask
 
 def get_tgt_mask(tgt_tensor):
     seq_len = tgt_tensor.size(-1)

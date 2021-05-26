@@ -118,7 +118,6 @@ class SpaceTokenizer():
         else:
             src_tensor, src_len = self.src_vocab.get_token_id(batch[0], device, is_src=True, return_tensor=return_tensor)
             tgt_tensor, tgt_len = self.tgt_vocab.get_token_id(batch[1], device, is_src=False, return_tensor=return_tensor)
-
             return src_tensor, tgt_tensor, src_len, tgt_len
 
     @staticmethod

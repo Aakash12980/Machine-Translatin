@@ -22,7 +22,7 @@ def open_file(path):
 def compute_bleu_score(output, labels):
     refs = SpaceTokenizer.tokenize(labels, batch=True, wrap_inner_list = True)
     output_tokens = SpaceTokenizer.tokenize(output, batch=True)
-    weights = (1.0/2.0, 1.0/2.0, )
+    weights = (1.0/1.0, )
     score = corpus_bleu(refs, output_tokens, smoothing_function=SmoothingFunction(epsilon=1e-10).method1, weights=weights)
     return score
 

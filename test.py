@@ -1,5 +1,6 @@
 from numpy.lib.function_base import append
 import torch
+from torch._C import dtype
 from models.transformer import *
 from dataset import NMTDataset
 import click
@@ -12,23 +13,23 @@ from beam import greedy_decode
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-BATCH_SIZE = 16
-embed_size = 256
-hidden_size = 128
+BATCH_SIZE = 4
+embed_size = 512
+hidden_size = 256
 dropout_rate = 0.2  
-n_layers = 2
-beam_size = 5
-epoch = 30
-n_heads = 2
+n_layers = 6
+beam_size = 8
+epoch = 150
+n_heads = 4
 LOG_EVERY = 1
 max_decoding_time_step = 20
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
-base_path = "./"
-# base_path = "./drive/My Drive/Machine Translation/"
+# base_path = "./"
+base_path = "./drive/My Drive/Machine Translation/"
 
-src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json"
-tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json"
+tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
 
 def collate_fn(batch):
     src_list, tgt_list = [], []
@@ -40,8 +41,7 @@ def collate_fn(batch):
 def compute_bleu_score(output, labels):
     refs = SpaceTokenizer.tokenize(labels, batch=True, wrap_inner_list = True)
     output_tokens = SpaceTokenizer.tokenize(output, batch=True)
-    # weights = (1.0/2.0, 1.0/2.0, )
-    weights = (1.0, )
+    weights = (1.0/2.0, 1.0/2.0, )
     score = corpus_bleu(refs, output_tokens, smoothing_function=SmoothingFunction(epsilon=1e-10).method1, weights=weights)
     return score
 
@@ -52,10 +52,10 @@ def task():
     pass
 
 @task.command()
-@click.option('--src_train', default=base_path+"dataset/src_train.txt", help="train source file path")
-@click.option('--tgt_train', default=base_path+"dataset/tgt_train.txt", help="train target file path")
-@click.option('--src_valid', default=base_path+"dataset/src_valid.txt", help="validation source file path")
-@click.option('--tgt_valid', default=base_path+"dataset/tgt_valid.txt", help="validation target file path")
+@click.option('--src_train', default=base_path+"nep_dataset/src_train.txt", help="train source file path")
+@click.option('--tgt_train', default=base_path+"nep_dataset/tgt_train.txt", help="train target file path")
+@click.option('--src_valid', default=base_path+"nep_dataset/src_valid.txt", help="validation source file path")
+@click.option('--tgt_valid', default=base_path+"nep_dataset/tgt_valid.txt", help="validation target file path")
 @click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
 @click.option('--model', default="transformer", help="transformer or lstm")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
@@ -69,16 +69,13 @@ def train(**kwargs):
 
     train_dl = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
     valid_dl = DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    tokenizer = SpaceTokenizer(src_vocab_path, tgt_vocab_path
                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
-                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
-                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
+                    src_vocab_path, tgt_vocab_path
                 )
 
     model = TransformerModel(len(tokenizer.src_vocab), len(tokenizer.tgt_vocab), tokenizer, embed_size, 
                 n_heads, dropout=dropout_rate)
-
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
     # param_optimizer = list(model.named_parameters())
     # no_decay = ['bias', 'LayerNorm.weight']
@@ -88,14 +85,15 @@ def train(**kwargs):
     #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
     #     'weight_decay_rate': 0.0}
     # ]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
+    # scheduler = 0
     
     train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, BATCH_SIZE, epoch, 
                             device, LOG_EVERY, kwargs["checkpoint_path"], kwargs["best_model"], 
                             beam_size, max_decoding_time_step)
                             
-def train_model(model, optimizer, scheduler, criterion, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
+def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
     eval_loss = float('inf')
     start_epoch = 0
     if os.path.exists(checkpt_path):
@@ -120,7 +118,6 @@ def train_model(model, optimizer, scheduler, criterion, train_dl, valid_dl, batc
             targets = tgt_tensor[:, 1:].contiguous().view(-1)
             
             optimizer.zero_grad()
-            # model.zero_grad()
             preds = model(src_tensor, trg_input.to(device), device)
 
             loss = criterion(preds, targets)
@@ -128,6 +125,7 @@ def train_model(model, optimizer, scheduler, criterion, train_dl, valid_dl, batc
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             epoch_train_loss += loss.item()/batch_size
+            exit()
 
         model.eval()
         with torch.no_grad():
@@ -175,8 +173,8 @@ def train_model(model, optimizer, scheduler, criterion, train_dl, valid_dl, batc
         scheduler.step()
 
 @task.command()
-@click.option('--src_test', default=base_path+"dataset/src_test.txt", help="test source file path")
-@click.option('--tgt_test', default=base_path+"dataset/tgt_test.txt", help="test target file path")
+@click.option('--src_test', default=base_path+"nep_dataset/src_test.txt", help="test source file path")
+@click.option('--tgt_test', default=base_path+"nep_dataset/tgt_test.txt", help="test target file path")
 @click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def test(**kwargs):
@@ -187,11 +185,9 @@ def test(**kwargs):
 
     test_dl = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
     
-    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    tokenizer = SpaceTokenizer(src_vocab_path, tgt_vocab_path
                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
-                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
-                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
+                    src_vocab_path, tgt_vocab_path
                 )
     model = TransformerModel(len(tokenizer.src_vocab), len(tokenizer.tgt_vocab), tokenizer, embed_size, 
                 n_heads, dropout=dropout_rate)
@@ -228,17 +224,16 @@ def test(**kwargs):
 
 
 @task.command()
-@click.option('--src_file', default=base_path+"dataset/src_file.txt", help="Source file path")
-@click.option('--output_file', default=base_path+"dataset/out.txt", help="Output file path")
+@click.option('--src_file', default=base_path+"nep_dataset/src_file.txt", help="Source file path")
+@click.option('--output_file', default=base_path+"nep_dataset/out.txt", help="Output file path")
 @click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def decode(**kwargs):
     src_sent = open_file(kwargs['src_file'])
-    tokenizer = SpaceTokenizer(base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_newa.json", 
-                base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_eng.json"
+    tokenizer = SpaceTokenizer(src_vocab_path, tgt_vocab_path
+                
                 ) if kwargs["tokenizer"] == "space_tokenizer" else BertTokenizer(
-                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_newa.json", 
-                    base_path+"NMTtokenizers/wordpiece_vocab_files/vocab_eng.json"
+                    src_vocab_path, tgt_vocab_path
                 )
     model = TransformerModel(len(tokenizer.src_vocab), len(tokenizer.tgt_vocab), tokenizer, embed_size, 
                 n_heads, dropout=dropout_rate)
