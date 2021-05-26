@@ -26,7 +26,7 @@ max_decoding_time_step = 20
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
 # base_path = "./"
-base_path = "./drive/My Drive/Machine Translation/"
+base_path = "../drive/My Drive/Machine Translation/"
 
 src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json"
 tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
@@ -85,9 +85,8 @@ def train(**kwargs):
     #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
     #     'weight_decay_rate': 0.0}
     # ]
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=5.0)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
-    # scheduler = 0
     
     train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, BATCH_SIZE, epoch, 
                             device, LOG_EVERY, kwargs["checkpoint_path"], kwargs["best_model"], 
@@ -125,7 +124,6 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             epoch_train_loss += loss.item()/batch_size
-            exit()
 
         model.eval()
         with torch.no_grad():
