@@ -14,14 +14,12 @@ from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 4
-embed_size = 512
-hidden_size = 256
-dropout_rate = 0.2  
-n_layers = 6
+embed_size = 1024
+dropout_rate = 0.1 
+n_layers = 4
 beam_size = 8
-epoch = 150
+epoch = 200
 n_heads = 4
-LOG_EVERY = 1
 max_decoding_time_step = 20
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
@@ -76,6 +74,7 @@ def train(**kwargs):
 
     model = TransformerModel(len(tokenizer.src_vocab), len(tokenizer.tgt_vocab), tokenizer, embed_size, 
                 n_heads, dropout=dropout_rate)
+    model.to(device)
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
     # param_optimizer = list(model.named_parameters())
     # no_decay = ['bias', 'LayerNorm.weight']
@@ -85,21 +84,20 @@ def train(**kwargs):
     #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
     #     'weight_decay_rate': 0.0}
     # ]
-    optimizer = torch.optim.Adam(model.parameters(), lr=5.0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.6)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     
     train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, BATCH_SIZE, epoch, 
-                            device, LOG_EVERY, kwargs["checkpoint_path"], kwargs["best_model"], 
+                            device, kwargs["checkpoint_path"], kwargs["best_model"], 
                             beam_size, max_decoding_time_step)
                             
-def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batch_size, epoch, device, LOG_EVERY, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
+def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batch_size, epoch, device, checkpt_path, best_model_path, beam_size, max_decoding_time_step):
     eval_loss = float('inf')
     start_epoch = 0
     if os.path.exists(checkpt_path):
         model, optimizer, eval_loss, start_epoch = load_checkpt(model, checkpt_path, device, optimizer)
         print(f"Loading model from checkpoint with start epoch: {start_epoch} and loss: {eval_loss}")
 
-    model.to(device)
     best_eval_loss = eval_loss
     print("Model training started...")
     for epoch in range(start_epoch, epoch):
@@ -109,7 +107,7 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
         epoch_eval_loss = 0
         model.train()
         bleu_score = 0
-        for step, batch in enumerate(train_dl):
+        for batch in train_dl:
             src_tensor, tgt_tensor, _, _ = model.tokenizer.encode(batch, device, return_tensor=True)
             src_tensor = src_tensor.transpose(0,1)
             tgt_tensor = tgt_tensor.transpose(0,1)
@@ -123,11 +121,11 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
-            epoch_train_loss += loss.item()/batch_size
+            epoch_train_loss += loss.item()
 
         model.eval()
         with torch.no_grad():
-            for step, batch in enumerate(valid_dl):
+            for batch in valid_dl:
                 src_tensor, tgt_tensor, _, _ = model.tokenizer.encode(batch, device, return_tensor=True)
                 src_tensor = src_tensor.transpose(0,1)
                 tgt_tensor = tgt_tensor.transpose(0,1)
@@ -136,7 +134,7 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
                 preds = model(src_tensor, trg_input.to(device), device)
                 
                 loss = criterion(preds, targets)
-                epoch_eval_loss += loss.item()/batch_size
+                epoch_eval_loss += loss.item()
 
                 output = []
                 for src in src_tensor:
@@ -176,8 +174,6 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
 @click.option('--best_model', default=base_path+"best_model/model.pt", help="best model file path")
 @click.option('--tokenizer', default="space_tokenizer", help="space_tokenizer or bert_tokenizer")
 def test(**kwargs):
-    src_sent = open_file(kwargs['src_test'])
-    tgt_sent = open_file(kwargs['tgt_test'])
     test_dataset = NMTDataset(kwargs["src_test"], kwargs["tgt_test"])
     print("Dataset loaded successfully.")
 
@@ -197,7 +193,7 @@ def test(**kwargs):
     test_loss = 0
     test_start_time = time.time()
     with torch.no_grad():
-        for step, batch in enumerate(test_dl):
+        for batch in test_dl:
             src_tensor, tgt_tensor, _, _ = model.tokenizer.encode(batch, device, return_tensor=True)
             src_tensor = src_tensor.transpose(0,1)
             tgt_tensor = tgt_tensor.transpose(0,1)
@@ -206,7 +202,7 @@ def test(**kwargs):
             preds = model(src_tensor, trg_input.to(device), device)
                 
             loss = criterion(preds, targets)
-            test_loss += loss.item()/BATCH_SIZE
+            test_loss += loss.item()
 
             output = []
             for src in src_tensor:

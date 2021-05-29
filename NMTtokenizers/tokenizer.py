@@ -61,12 +61,12 @@ class SpaceVocab():
     def word2indices(self, sents, is_src):
         if not isinstance(sents, str):
             if is_src:
-                return [[self[w] for w in word_tokenize(s)] for s in sents]
+                return [[self[w] for w in word_tokenize(s) +["[EOS]"]] for s in sents]
             else:
                 return [[self[w] for w in ["[SOS]"] + word_tokenize(s) +["[EOS]"]] for s in sents]
         else:
             if is_src:
-                return [self[w] for w in word_tokenize(sents)]
+                return [self[w] for w in word_tokenize(sents) +["[EOS]"]]
             else:
                 return [self[w] for w in ["[SOS]"] + word_tokenize(sents) + ["[EOS]"]]
 
