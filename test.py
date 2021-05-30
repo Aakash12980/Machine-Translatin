@@ -84,8 +84,9 @@ def train(**kwargs):
     #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
     #     'weight_decay_rate': 0.0}
     # ]
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.6)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.6, betas=(0.9, 0.98), eps=1e-9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
+    torch.autograd.set_detect_anomaly(True)
     
     train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, BATCH_SIZE, epoch, 
                             device, kwargs["checkpoint_path"], kwargs["best_model"], 
@@ -121,7 +122,7 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
-            epoch_train_loss += loss.item()
+            epoch_train_loss += loss.item()/BATCH_SIZE
 
         model.eval()
         with torch.no_grad():
@@ -134,7 +135,7 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
                 preds = model(src_tensor, trg_input.to(device), device)
                 
                 loss = criterion(preds, targets)
-                epoch_eval_loss += loss.item()
+                epoch_eval_loss += loss.item()/BATCH_SIZE
 
                 output = []
                 for src in src_tensor:
@@ -202,7 +203,7 @@ def test(**kwargs):
             preds = model(src_tensor, trg_input.to(device), device)
                 
             loss = criterion(preds, targets)
-            test_loss += loss.item()
+            test_loss += loss.item()/BATCH_SIZE
 
             output = []
             for src in src_tensor:

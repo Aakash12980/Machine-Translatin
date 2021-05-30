@@ -84,7 +84,6 @@ class Translator(nn.Module):
 
     def translate_sentence(self, src_seq, device):
         # Only accept batch size equals to 1 in this function.
-        # TODO: expand to batch operation.
         self.model._reset_parameters()
         assert src_seq.size(0) == 1
 
@@ -114,7 +113,6 @@ class Translator(nn.Module):
 
 
 def greedy_decode(model, src, max_len, tgt_sos_symbol, src_pad_token, tgt_eos_symbol, device):
-    # model._reset_parameters()
     assert src.size(0) == 1
     trg_seq = torch.LongTensor([[tgt_sos_symbol]])
     softmax = nn.Softmax(dim=-1)
@@ -147,7 +145,6 @@ def beam_search_transformer(model, src_tensor, beam_size, max_decoding_time_step
     t = 0
     while len(completed_hypotheses) < beam_size and t < max_decoding_time_step:
         t += 1
-        hyp_num = len(hypotheses)
 
         trg_seq = torch.tensor([model.tokenizer.tgt_vocab[hyp[-1]] for hyp in hypotheses], dtype=torch.long, device=device)
         output = model.decoder(trg_seq.view(-1,1), memory.to(device)) 
