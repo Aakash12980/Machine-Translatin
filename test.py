@@ -143,7 +143,6 @@ def train_model(model, optimizer, criterion, scheduler, train_dl, valid_dl, batc
 
         print(f'Epoch: {epoch} Compeleted | avg. train loss: {epoch_train_loss/len(train_dl)} | time elapsed: {time.time() - epoch_start_time}')
         print(f'Epoch: {epoch} Compeleted | avg. eval loss: {epoch_eval_loss/len(valid_dl)} | BLEU Score: {bleu_score/len(valid_dl)} | time elapsed: {time.time() - epoch_start_time}')
-        # exit()
         check_pt = {
             'epoch': epoch+1,
             'model_state_dict': model.state_dict(),

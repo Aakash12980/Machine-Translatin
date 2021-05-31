@@ -16,7 +16,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pos_enc', pos_enc)
 
     def forward(self, inputs):
-        inputs = inputs * math.sqrt(self.model_dim)
+        inputs = inputs
         inputs = inputs + self.pos_enc[:inputs.size(0), :]
         return self.dropout(inputs)
 
@@ -32,9 +32,7 @@ class Encoder(nn.Module):
     def forward(self, src, src_mask):
         src = self.src_embeddings(src)
         src = self.pos_encoder(src)
-
         return self.encoder(src.transpose(0,1), src_key_padding_mask=src_mask) #src_mask is giving error.
-        # return self.encoder(src)
         
 class Decoder(nn.Module):
     def __init__(self, tgt_vocab_len, model_dim, fc_dim, n_heads, n_dec_layers, pad_idx, dropout, activation):
@@ -68,7 +66,7 @@ class TransformerModel(nn.Module):
         self._reset_parameters()
 
     def forward(self, src, tgt, device):
-        # src, tgt have shape (batch, seq_len)
+        # src, tgt have shape (batch_size, seq_len)
         assert src.size(0) == tgt.size(0), "The batch size of source and target sentences should be equal."
         src_mask = get_src_mask(src, self.tokenizer.src_vocab["[PAD]"])
         tgt_mask = get_src_mask(tgt, self.tokenizer.tgt_vocab["[PAD]"])
