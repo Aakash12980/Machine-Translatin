@@ -136,7 +136,7 @@ def beam_search_transformer(model, src_tensor, beam_size, max_decoding_time_step
 
     log_softmax = nn.LogSoftmax(dim=-1)
     src_mask = get_src_mask(src_tensor, src_pad_idx)
-    memory = model.encoder(src_tensor.transpose(0,1), src_mask.to(device))
+    memory = model.encoder(src_tensor, src_mask.to(device))
 
     hypotheses = [['[SOS]']]
     hyp_scores = torch.zeros(len(hypotheses), dtype=torch.float, device=device) 
@@ -147,7 +147,7 @@ def beam_search_transformer(model, src_tensor, beam_size, max_decoding_time_step
         t += 1
 
         trg_seq = torch.tensor([model.tokenizer.tgt_vocab[hyp[-1]] for hyp in hypotheses], dtype=torch.long, device=device)
-        output = model.decoder(trg_seq.view(-1,1), memory.to(device)) 
+        output = model.decoder(trg_seq.view(1,-1), memory.to(device)) 
 
         # log probabilities over target words
         log_p_t = log_softmax(model.out(output).transpose(0,1))

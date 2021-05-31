@@ -13,13 +13,13 @@ from beam import greedy_decode
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-BATCH_SIZE = 4
-embed_size = 1024
+BATCH_SIZE = 32
+embed_size = 512
 dropout_rate = 0.1 
-n_layers = 4
+n_layers = 6
 beam_size = 8
 epoch = 200
-n_heads = 4
+n_heads = 8
 max_decoding_time_step = 20
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
@@ -76,14 +76,7 @@ def train(**kwargs):
                 n_heads, dropout=dropout_rate)
     model.to(device)
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
-    # param_optimizer = list(model.named_parameters())
-    # no_decay = ['bias', 'LayerNorm.weight']
-    # optimizer_grouped_parameters = [
-    #     {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
-    #     'weight_decay_rate': 0.01},
-    #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
-    #     'weight_decay_rate': 0.0}
-    # ]
+
     optimizer = torch.optim.Adam(model.parameters(), lr=0.6, betas=(0.9, 0.98), eps=1e-9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     torch.autograd.set_detect_anomaly(True)
