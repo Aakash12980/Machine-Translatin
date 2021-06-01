@@ -23,8 +23,8 @@ n_heads = 8
 max_decoding_time_step = 20
 
 CONTEXT_SETTINGS = dict(help_option_names = ['-h', '--help'])
-# base_path = "./"
-base_path = "../drive/My Drive/Machine Translation/"
+base_path = "./"
+# base_path = "../drive/My Drive/Machine Translation/"
 
 src_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_nepali.json"
 tgt_vocab_path = base_path+"NMTtokenizers/spacetoken_vocab_files/vocab_english.json"
